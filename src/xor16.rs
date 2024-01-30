@@ -3,6 +3,7 @@
 //! [Xor Filters: Faster and Smaller Than Bloom and Cuckoo Filters]: https://arxiv.org/abs/1912.08258
 
 use crate::{xor_contains_impl, xor_from_impl, Filter};
+use alloc::sync::Arc;
 use alloc::{boxed::Box, vec::Vec};
 
 #[cfg(feature = "serde")]
@@ -104,6 +105,55 @@ impl From<&Vec<u64>> for Xor16 {
 impl From<Vec<u64>> for Xor16 {
     fn from(v: Vec<u64>) -> Self {
         Self::from_iterator(v.iter().copied())
+    }
+}
+
+#[derive(Debug)]
+pub struct Xor16Ref<'a> {
+    /// The seed for the filter
+    pub seed: u64,
+    /// The number of blocks in the filter
+    pub block_length: usize,
+    /// The fingerprints for the filter
+    pub fingerprints: &'a [u16],
+}
+
+impl<'a> Filter<u64> for Xor16Ref<'a> {
+    /// Returns `true` if the filter contains the specified key. Has a false positive rate of <0.002%.
+    fn contains(&self, key: &u64) -> bool {
+        xor_contains_impl!(*key, self, fingerprint u16)
+    }
+
+    fn len(&self) -> usize {
+        self.fingerprints.len()
+    }
+}
+
+#[derive(Debug)]
+pub struct Xor16Share {
+    /// The seed for the filter
+    pub seed: u64,
+    /// The number of blocks in the filter
+    pub block_length: usize,
+    /// The fingerprints for the filter
+    pub fingerprints: Arc<Box<[u16]>>,
+    pub offset: usize,
+    pub size: usize,
+}
+
+impl Filter<u64> for Xor16Share {
+    /// Returns `true` if the filter contains the specified key. Has a false positive rate of <0.002%.
+    fn contains(&self, key: &u64) -> bool {
+        let tmp = Xor16Ref {
+            seed: self.seed,
+            block_length: self.block_length,
+            fingerprints: &self.fingerprints[self.offset..(self.offset + self.size)],
+        };
+        tmp.contains(key)
+    }
+
+    fn len(&self) -> usize {
+        self.offset
     }
 }
 
